@@ -12,34 +12,39 @@
 # the command succeeded based on the target file being present.
 
 # Input parameters
-FASTQ_INPUT := test.fastq
+INFILE := reads.fastq
+SFF_PATH := sff
 MAXEE := 1.0
 TRUNCLEN := 250
 OTUID := 0.97
 OTULABEL := OTU_
+PRIMER := CCTACGGGNGGCWGCAG
 
 
 # Server configuration
 FASTQC_BIN := /projects/qiime/FastQC/fastqc
 SFF2FASTQ_BIN := /projects/s16/bjorn/seqtools/bin/sff2fastq
 PYTHON_BIN := python
+ZCAT_BIN := zcat
 
 USEARCH_PATH := /projects/qiime/usearch
 USEARCH_BIN := $(USEARCH_PATH)/usearch7
 UC2OTUTAB_PY := $(USEARCH_PATH)/scripts/uc2otutab.py
 FASTA_NUMBER_PY := $(USEARCH_PATH)/scripts/fasta_number.py
+FASTQ_STRIP_BARCODE_RELABEL2_PY := $(USEARCH_PATH)/scripts/fastq_strip_barcode_relabel2.py
 GOLD_DB_PATH := $(USEARCH_PATH)/microbiomeutil-r20110519/gold.fa
 
 
 # Targets
-QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(FASTQ_INPUT))
-QF_TARGETS := $(patsubst %.fastq, %.fasta, $(FASTQ_INPUT))
-OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(FASTQ_INPUT)) \
-	       $(patsubst %.fastq, %_otutable.txt, $(FASTQ_INPUT))
+QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(INFILE))
+QF_TARGETS := $(patsubst %.fastq, %.fasta, $(INFILE))
+OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(INFILE)) \
+  $(patsubst %.fastq, %_otutable.txt, $(INFILE))
 ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS)
 
 
-.PHONY: all qc qf clean
+
+.PHONY: all sff qc qf otu clean
 
 all: qf otu
 
@@ -101,10 +106,19 @@ clean:
 	$(PYTHON_BIN) $(UC2OTUTAB_PY) $< > $@
 
 
-## Rules for generating fastq files from sff files
+## Rules for generating fastq file from multiple sff files
 #
-%.fastq: %.sff.gz
-	zcat $< | sff2bin -o $@
+%_raw.fastq: %.sff.gz
+	$(ZCAT_BIN) $< | $(SFF2FASTQ_BIN) -o $@
 
-%.fastq: %.sff
+%_raw.fastq: %.sff
 	$(SFF2FASTQ_BIN) -o $@ $<
+
+%_demultiplexed.fastq: %_raw.fastq
+	$(PYTHON_BIN) $(FASTQ_STRIP_BARCODE_RELABEL2_PY) $< $(PRIMER) \
+		      $*-barcodes.fasta $(notdir $*) > $@
+
+sff: $(patsubst %.sff.gz, %_demultiplexed.fastq, \
+	   $(wildcard $(SFF_PATH)/*.sff.gz))
+	cat $^ > $(INFILE)
+	-rm -f $^

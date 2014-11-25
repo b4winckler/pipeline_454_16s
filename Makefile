@@ -51,9 +51,9 @@
 #
 # otu     Generate OTUs from qf output.
 #
-# tax     Taxonomic classification on otu output.
+# tax     Taxonomic classification on otu output (not implemented).
 #
-# phy     Phylogenetic tree generation from otu output.
+# phy     Phylogenetic tree generation from otu output (not implemented).
 #
 # clean   Delete all generated files except reads.fastq.
 #

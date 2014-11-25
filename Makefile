@@ -1,27 +1,97 @@
 #
 # Makefile for 454 pipeline
 #
-# QC  -	quality control
-# QF  - quality filtering
-# OTU - OTU generation
-# TAX - taxonomic classification
-# PHY - phylogenetic tree generation
+# Usage:
 #
+# 1. (optional) If a fastq file is already available then you can skip this
+#    step.  Instead copy (or softlink) the file to the same folder as this
+#    makefile and update INFILE below to match its name, but be aware that
+#    fasta headers are assumed to be of the format mentioned below.
+#
+#    Copy (or softlink) all sff files (may be gzipped) and corresponding
+#    barcodes to the sff/ folder (see below for barcode naming convention),
+#    then set PRIMER below to match the PCR primer used by your project and
+#    finally generate one fastq file from all sff files with
+#
+#         make sff
+#
+# 2. Generate quality control files
+#
+#         make qc
+#
+#    Check qc files and modify MAXEE and TRUNCLEN settings below based on
+#    results.
+#
+# 3. Run pipeline
+#
+#         make
+#
+#    to create the following files
+#
+#         reads.fasta           quality filtered reads
+#         reads_otureps.fasta   OTU representatives
+#         reads_otutable.txt    OTU abundance table
+#
+#
+# Targets:
+#
+# sff     Generate input file from all sff[.gz] files in sff/.  For each file
+#         X.sff[.gz] there must also be a file named X-barcodes.fasta where
+#         each header names the sample and the corresponding sequence is the
+#         barcode for that sample.
+#         This step must be run manually and is not affected by 'clean'.
+#         It is also possible to put an already generated reads.fastq file in
+#         the pwd to avoid generating it from sff files, but be aware that the
+#         fasta headers must end with ';barcodelabel=X;', where 'X' identifies
+#         the sample.
+#
+# qc      Run quality control on reads.fastq.
+#
+# qf      Run quality filter on reads.fastq.
+#
+# otu     Generate OTUs from qf output.
+#
+# tax     Taxonomic classification on otu output.
+#
+# phy     Phylogenetic tree generation from otu output.
+#
+# clean   Delete all generated files except reads.fastq.
+#
+
 # FIXME: Commands that create files by redirecting to stdout will not clean up
 # after themselves if they fail which causes dependency problems as it seems
 # the command succeeded based on the target file being present.
 
-# Input parameters
+
+## Input parameters (modify these to match project) ##########################
+
+# Name of the input file (see note on fasta header requirements above).  If you
+# already have a fastq file you can change this to match its name.
 INFILE := reads.fastq
+
+# Path to sff files (see note on barcodes above).  Note that intermediate files
+# will be placed in this folder so do not set it to a location that should be
+# read-only.
 SFF_PATH := sff
-MAXEE := 1.0
-TRUNCLEN := 250
-OTUID := 0.97
-OTULABEL := OTU_
+
+# Primer in sff files (must be the same for all sff files)
 PRIMER := CCTACGGGNGGCWGCAG
 
+# Maximum expected errors used in quality filtering
+MAXEE := 1.0
 
-# Server configuration
+# Truncation length used in quality filtering
+TRUNCLEN := 250
+
+# OTU identity (in range 0.0-1.0)
+OTUID := 0.97
+
+# Prefix used to label OTUs
+OTULABEL := OTU_
+
+
+## Server configuration (modify these to match server) #######################
+
 FASTQC := /projects/qiime/FastQC/fastqc
 SFF2FASTQ := /projects/s16/bjorn/seqtools/bin/sff2fastq
 PYTHON := python
@@ -35,18 +105,28 @@ FASTQ_STRIP_BARCODE_RELABEL2_PY := $(USEARCH_PATH)/scripts/fastq_strip_barcode_r
 GOLD_DB_PATH := $(USEARCH_PATH)/microbiomeutil-r20110519/gold.fa
 
 
-# Targets
+
+## Below here is not meant to be configured by user ##########################
+
 QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(INFILE))
 QF_TARGETS := $(patsubst %.fastq, %.fasta, $(INFILE))
 OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(INFILE)) \
-  $(patsubst %.fastq, %_otutable.txt, $(INFILE))
-ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS)
+               $(patsubst %.fastq, %_otutable.txt, $(INFILE))
 
+SFF_FILES := $(wildcard $(SFF_PATH)/*.sff)
+SFF_GZ_FILES := $(wildcard $(SFF_PATH)/*.sff.gz)
+DEMULT_TARGETS := $(patsubst %.sff.gz, %_demultiplexed.fastq, $(SFF_GZ_FILES)) \
+                  $(patsubst %.sff, %_demultiplexed.fastq, $(SFF_FILES)) \
+
+ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS) $(DEMULT_TARGETS)
 
 
 .PHONY: all sff qc qf otu clean
 
 all: qf otu
+
+sff: $(DEMULT_TARGETS)
+	cat $^ > $(INFILE)
 
 qc: $(QC_TARGETS)
 
@@ -106,7 +186,7 @@ clean:
 	$(PYTHON) $(UC2OTUTAB_PY) $< > $@
 
 
-## Rules for generating fastq file from multiple sff files
+## Rules for generating fastq file from one or more sff files
 #
 %_raw.fastq: %.sff.gz
 	$(ZCAT) $< | $(SFF2FASTQ) -o $@
@@ -117,8 +197,3 @@ clean:
 %_demultiplexed.fastq: %_raw.fastq
 	$(PYTHON) $(FASTQ_STRIP_BARCODE_RELABEL2_PY) $< $(PRIMER) \
 	          $*-barcodes.fasta $(notdir $*) > $@
-
-sff: $(patsubst %.sff.gz, %_demultiplexed.fastq, \
-	   $(wildcard $(SFF_PATH)/*.sff.gz))
-	cat $^ > $(INFILE)
-	-rm -f $^

@@ -22,13 +22,13 @@ PRIMER := CCTACGGGNGGCWGCAG
 
 
 # Server configuration
-FASTQC_BIN := /projects/qiime/FastQC/fastqc
-SFF2FASTQ_BIN := /projects/s16/bjorn/seqtools/bin/sff2fastq
-PYTHON_BIN := python
-ZCAT_BIN := zcat
+FASTQC := /projects/qiime/FastQC/fastqc
+SFF2FASTQ := /projects/s16/bjorn/seqtools/bin/sff2fastq
+PYTHON := python
+ZCAT := zcat
 
 USEARCH_PATH := /projects/qiime/usearch
-USEARCH_BIN := $(USEARCH_PATH)/usearch7
+USEARCH := $(USEARCH_PATH)/usearch7
 UC2OTUTAB_PY := $(USEARCH_PATH)/scripts/uc2otutab.py
 FASTA_NUMBER_PY := $(USEARCH_PATH)/scripts/fasta_number.py
 FASTQ_STRIP_BARCODE_RELABEL2_PY := $(USEARCH_PATH)/scripts/fastq_strip_barcode_relabel2.py
@@ -62,14 +62,14 @@ clean:
 #
 # NB: FastQC automatically adds the suffix "_fastqc"
 %_fastqc.zip: %.fastq
-	$(FASTQC_BIN) --noextract $<
+	$(FASTQC) --noextract $<
 
 
 ## Rule for quality filtering
 #
 %.fasta: %.fastq
-	$(USEARCH_BIN) -fastq_filter $< -fastq_maxee $(MAXEE) \
-		       -fastq_trunclen $(TRUNCLEN) -fastaout $@
+	$(USEARCH) -fastq_filter $< -fastq_maxee $(MAXEE) \
+		   -fastq_trunclen $(TRUNCLEN) -fastaout $@
 
 
 ## Rules for generating OTU representatives
@@ -78,20 +78,20 @@ clean:
 #   -> sequentially label OTUs
 #
 %_derep.fasta: %.fasta
-	$(USEARCH_BIN) -derep_fulllength $< -output $@ -sizeout
+	$(USEARCH) -derep_fulllength $< -output $@ -sizeout
 
 %_sort.fasta: %_derep.fasta
-	$(USEARCH_BIN) -sortbysize $< -output $@ -minsize 2
+	$(USEARCH) -sortbysize $< -output $@ -minsize 2
 
 %_otureps1.fasta: %_sort.fasta
-	$(USEARCH_BIN) -cluster_otus $< -otus $@ -otuid $(OTUID)
+	$(USEARCH) -cluster_otus $< -otus $@ -otuid $(OTUID)
 
 %_otureps2.fasta: %_otureps1.fasta
-	$(USEARCH_BIN) -uchime_ref $< -db $(GOLD_DB_PATH) -strand plus \
-		       -nonchimeras $@
+	$(USEARCH) -uchime_ref $< -db $(GOLD_DB_PATH) -strand plus \
+		   -nonchimeras $@
 
 %_otureps.fasta: %_otureps2.fasta
-	$(PYTHON_BIN) $(FASTA_NUMBER_PY) $< $(OTULABEL) > $@
+	$(PYTHON) $(FASTA_NUMBER_PY) $< $(OTULABEL) > $@
 
 
 ## Rules for generating OTU abundance table
@@ -99,24 +99,24 @@ clean:
 # map reads to OTU representatives -> create table
 #
 %_otumap.uc: %.fasta %_otureps.fasta
-	$(USEARCH_BIN) -usearch_global $< -db $(word 2, $^) \
-		       -strand plus -id $(OTUID) -uc $@
+	$(USEARCH) -usearch_global $< -db $(word 2, $^) \
+		   -strand plus -id $(OTUID) -uc $@
 
 %_otutable.txt: %_otumap.uc
-	$(PYTHON_BIN) $(UC2OTUTAB_PY) $< > $@
+	$(PYTHON) $(UC2OTUTAB_PY) $< > $@
 
 
 ## Rules for generating fastq file from multiple sff files
 #
 %_raw.fastq: %.sff.gz
-	$(ZCAT_BIN) $< | $(SFF2FASTQ_BIN) -o $@
+	$(ZCAT) $< | $(SFF2FASTQ) -o $@
 
 %_raw.fastq: %.sff
-	$(SFF2FASTQ_BIN) -o $@ $<
+	$(SFF2FASTQ) -o $@ $<
 
 %_demultiplexed.fastq: %_raw.fastq
-	$(PYTHON_BIN) $(FASTQ_STRIP_BARCODE_RELABEL2_PY) $< $(PRIMER) \
-		      $*-barcodes.fasta $(notdir $*) > $@
+	$(PYTHON) $(FASTQ_STRIP_BARCODE_RELABEL2_PY) $< $(PRIMER) \
+	          $*-barcodes.fasta $(notdir $*) > $@
 
 sff: $(patsubst %.sff.gz, %_demultiplexed.fastq, \
 	   $(wildcard $(SFF_PATH)/*.sff.gz))

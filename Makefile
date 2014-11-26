@@ -30,7 +30,8 @@
 #
 #         reads.fasta           quality filtered reads
 #         reads_otureps.fasta   OTU representatives
-#         reads_otutable.txt    OTU abundance table
+#         reads_otutab.tsv      OTU abundance table
+#         reads_otutax.tsv      OTU taxonomy
 #
 #
 # Targets:
@@ -51,7 +52,7 @@
 #
 # otu     Generate OTUs from qf output.
 #
-# tax     Taxonomic classification on otu output (not implemented).
+# tax     Taxonomic classification of OTU representatives.
 #
 # phy     Phylogenetic tree generation from otu output (not implemented).
 #
@@ -92,17 +93,20 @@ OTULABEL := OTU_
 
 ## Server configuration (modify these to match server) #######################
 
+THIRD_PARTY_PATH := /projects/s16/bjorn/3rdparty
+USEARCH_PATH := /projects/qiime/usearch
+
 FASTQC := /projects/qiime/FastQC/fastqc
 SFF2FASTQ := /projects/s16/bjorn/seqtools/bin/sff2fastq
 PYTHON := python
 ZCAT := zcat
-
-USEARCH_PATH := /projects/qiime/usearch
+JAVA := java
 USEARCH := $(USEARCH_PATH)/usearch7
 UC2OTUTAB_PY := $(USEARCH_PATH)/scripts/uc2otutab.py
 FASTA_NUMBER_PY := $(USEARCH_PATH)/scripts/fasta_number.py
 FASTQ_STRIP_BARCODE_RELABEL2_PY := $(USEARCH_PATH)/scripts/fastq_strip_barcode_relabel2.py
 GOLD_DB_PATH := $(USEARCH_PATH)/microbiomeutil-r20110519/gold.fa
+RDP_CLASSIFIER_JAR := $(THIRD_PARTY_PATH)/rdp_classifier_2.10.1/dist/classifier.jar
 
 
 
@@ -111,19 +115,20 @@ GOLD_DB_PATH := $(USEARCH_PATH)/microbiomeutil-r20110519/gold.fa
 QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(INFILE))
 QF_TARGETS := $(patsubst %.fastq, %.fasta, $(INFILE))
 OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(INFILE)) \
-               $(patsubst %.fastq, %_otutable.txt, $(INFILE))
-
+               $(patsubst %.fastq, %_otutab.tsv, $(INFILE))
+TAX_TARGETS := $(patsubst %.fastq, %_otutax.tsv, $(INFILE))
 SFF_FILES := $(wildcard $(SFF_PATH)/*.sff)
 SFF_GZ_FILES := $(wildcard $(SFF_PATH)/*.sff.gz)
 DEMULT_TARGETS := $(patsubst %.sff.gz, %_demultiplexed.fastq, $(SFF_GZ_FILES)) \
                   $(patsubst %.sff, %_demultiplexed.fastq, $(SFF_FILES)) \
 
-ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS) $(DEMULT_TARGETS)
+ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS) $(DEMULT_TARGETS) \
+               $(TAX_TARGETS)
 
 
-.PHONY: all sff qc qf otu clean
+.PHONY: all sff qc qf otu tax clean
 
-all: qf otu
+all: qf otu tax
 
 sff: $(DEMULT_TARGETS)
 	cat $^ > $(INFILE)
@@ -133,6 +138,8 @@ qc: $(QC_TARGETS)
 qf: $(QF_TARGETS)
 
 otu: $(OTU_TARGETS)
+
+tax: $(TAX_TARGETS)
 
 clean:
 	-rm -f $(ALL_TARGETS)
@@ -182,7 +189,7 @@ clean:
 	$(USEARCH) -usearch_global $< -db $(word 2, $^) \
 		   -strand plus -id $(OTUID) -uc $@
 
-%_otutable.txt: %_otumap.uc
+%_otutab.tsv: %_otumap.uc
 	$(PYTHON) $(UC2OTUTAB_PY) $< > $@
 
 
@@ -197,3 +204,9 @@ clean:
 %_demultiplexed.fastq: %_raw.fastq
 	$(PYTHON) $(FASTQ_STRIP_BARCODE_RELABEL2_PY) $< $(PRIMER) \
 	          $*-barcodes.fasta $(notdir $*) > $@
+
+
+## Rule for generating RDP taxonomy assignments
+#
+%_otutax.tsv: %_otureps.fasta
+	$(JAVA) -Xmx1g -jar $(RDP_CLASSIFIER_JAR) classify -o $@ $<

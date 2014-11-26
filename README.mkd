@@ -1,0 +1,15 @@
+# 16S pipeline for 454 sequence data
+
+This is the 16S pipeline I use at MEB for 454 sequencing data.  It takes sff
+files from which it generates a fastq file.  The fastq file is quality
+filtered and OTUs are generated.  The OTU representatives are taxonomically
+classified and a phylogenetic tree of the representatives is generated.
+
+## How to use
+
+Read the top of the Makefile on how to use this pipeline.
+
+## Prerequisites
+
+There are dependencies on a few programs, most notably USEARCH and QIIME.  The
+paths to all dependencies are listed in the configuration part of the Makefile.

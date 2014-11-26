@@ -1,17 +1,22 @@
 #
 # Makefile for 454 pipeline
 #
+# Executive summary (runs pipeline, writes log, and prints time it took):
+#
+#    time make 2>&1 | tee -a log-$(date "+%Y_%m_%d-%H_%M_%S").txt
+#
 # Usage:
 #
 # 1. (optional) If a fastq file is already available then you can skip this
-#    step.  Instead copy (or softlink) the file to the same folder as this
-#    makefile and update INFILE below to match its name, but be aware that
+#    step.  Instead copy (or softlink) the fastq file to the same folder as
+#    this makefile and update INFILE below to match its name, but be aware that
 #    fasta headers are assumed to be of the format mentioned below.
 #
-#    Copy (or softlink) all sff files (may be gzipped) and corresponding
-#    barcodes to the sff/ folder (see below for barcode naming convention),
-#    then set PRIMER below to match the PCR primer used by your project and
-#    finally generate one fastq file from all sff files with
+#    If no fastq file is available, copy (or softlink) all sff files (may be
+#    gzipped) and corresponding barcodes to the sff/ folder (see below for
+#    barcode naming convention), then set PRIMER below to match the PCR primer
+#    used by your project and finally generate one fastq file from all sff
+#    files with
 #
 #         make sff
 #
@@ -32,6 +37,7 @@
 #         reads_otureps.fasta   OTU representatives
 #         reads_otutab.tsv      OTU abundance table
 #         reads_otutax.tsv      OTU taxonomy
+#         reads_otuphy.tre      phylogenetic tree of OTU representatives
 #
 #
 # Targets:
@@ -54,7 +60,7 @@
 #
 # tax     Taxonomic classification of OTU representatives.
 #
-# phy     Phylogenetic tree generation from otu output (not implemented).
+# phy     Phylogenetic tree generation from OTU representatives.
 #
 # clean   Delete all generated files except reads.fastq.
 #
@@ -75,13 +81,13 @@ INFILE := reads.fastq
 # read-only.
 SFF_PATH := sff
 
-# Primer in sff files (must be the same for all sff files)
+# PCR primer in sff files (must be the same for all sff files)
 PRIMER := CCTACGGGNGGCWGCAG
 
-# Maximum expected errors used in quality filtering
+# Maximum expected errors used for quality filtering
 MAXEE := 1.0
 
-# Truncation length used in quality filtering
+# Truncation length used for quality filtering
 TRUNCLEN := 250
 
 # OTU identity (in range 0.0-1.0)
@@ -92,6 +98,9 @@ OTULABEL := OTU_
 
 
 ## Server configuration (modify these to match server) #######################
+
+# Number of parallel process to use for steps that support it
+NUMJOBS := 10
 
 THIRD_PARTY_PATH := /projects/s16/bjorn/3rdparty
 USEARCH_PATH := /projects/qiime/usearch
@@ -107,6 +116,7 @@ FASTA_NUMBER_PY := $(USEARCH_PATH)/scripts/fasta_number.py
 FASTQ_STRIP_BARCODE_RELABEL2_PY := $(USEARCH_PATH)/scripts/fastq_strip_barcode_relabel2.py
 GOLD_DB_PATH := $(USEARCH_PATH)/microbiomeutil-r20110519/gold.fa
 RDP_CLASSIFIER_JAR := $(THIRD_PARTY_PATH)/rdp_classifier_2.10.1/dist/classifier.jar
+QIIME_ACTIVATION_SCRIPT := /projects/qiime/activate-qiime-1.7.0.sh
 
 
 
@@ -117,18 +127,23 @@ QF_TARGETS := $(patsubst %.fastq, %.fasta, $(INFILE))
 OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(INFILE)) \
                $(patsubst %.fastq, %_otutab.tsv, $(INFILE))
 TAX_TARGETS := $(patsubst %.fastq, %_otutax.tsv, $(INFILE))
+PHY_TARGETS := $(patsubst %.fastq, %_otuphy.tre, $(INFILE))
 SFF_FILES := $(wildcard $(SFF_PATH)/*.sff)
 SFF_GZ_FILES := $(wildcard $(SFF_PATH)/*.sff.gz)
 DEMULT_TARGETS := $(patsubst %.sff.gz, %_demultiplexed.fastq, $(SFF_GZ_FILES)) \
                   $(patsubst %.sff, %_demultiplexed.fastq, $(SFF_FILES)) \
 
 ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS) $(DEMULT_TARGETS) \
-               $(TAX_TARGETS)
+               $(TAX_TARGETS) $(PHY_TARGETS)
+
+PYNAST_TMP := $(CURDIR)/pynast
+
+ALL_TMP := $(PYNAST_TMP)
 
 
-.PHONY: all sff qc qf otu tax clean
+.PHONY: all sff qc qf otu tax phy clean
 
-all: qf otu tax
+all: qf otu tax phy
 
 sff: $(DEMULT_TARGETS)
 	cat $^ > $(INFILE)
@@ -141,8 +156,10 @@ otu: $(OTU_TARGETS)
 
 tax: $(TAX_TARGETS)
 
+phy: $(PHY_TARGETS)
+
 clean:
-	-rm -f $(ALL_TARGETS)
+	-rm -rf $(ALL_TARGETS) $(ALL_TMP)
 
 
 ## Rule for quality control
@@ -210,3 +227,19 @@ clean:
 #
 %_otutax.tsv: %_otureps.fasta
 	$(JAVA) -Xmx1g -jar $(RDP_CLASSIFIER_JAR) classify -o $@ $<
+
+
+## Rules for generating phylogenetic tree for OTU representatives
+#
+$(PYNAST_TMP)/%_otureps_aligned.fasta: %_otureps.fasta
+	source $(QIIME_ACTIVATION_SCRIPT) && \
+	parallel_align_seqs_pynast.py -i $< --jobs_to_start=$(NUMJOBS) \
+	    -o $(PYNAST_TMP)
+
+$(PYNAST_TMP)/%_aligned_pfiltered.fasta: $(PYNAST_TMP)/%_aligned.fasta
+	source $(QIIME_ACTIVATION_SCRIPT) && \
+	filter_alignment.py -i $< -o $(PYNAST_TMP)
+
+%_otuphy.tre: $(PYNAST_TMP)/%_otureps_aligned_pfiltered.fasta
+	source $(QIIME_ACTIVATION_SCRIPT) && \
+	make_phylogeny.py -i $< -o $@ -r midpoint

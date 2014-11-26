@@ -24,8 +24,11 @@
 #
 #         make qc
 #
-#    Check qc files and modify MAXEE and TRUNCLEN settings below based on
-#    results.
+#    Modify MAXEE and TRUNCLEN settings below based on qc results which can be
+#    found in the following files
+#
+#         reads_fastqc.zip
+#         reads_fastq_stats.txt
 #
 # 3. Run pipeline
 #
@@ -122,7 +125,8 @@ QIIME_ACTIVATION_SCRIPT := /projects/qiime/activate-qiime-1.7.0.sh
 
 ## Below here is not meant to be configured by user ##########################
 
-QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(INFILE))
+QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(INFILE)) \
+              $(patsubst %.fastq, %_fastq_stats.txt, $(INFILE))
 QF_TARGETS := $(patsubst %.fastq, %.fasta, $(INFILE))
 OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(INFILE)) \
                $(patsubst %.fastq, %_otutab.tsv, $(INFILE))
@@ -162,11 +166,14 @@ clean:
 	-rm -rf $(ALL_TARGETS) $(ALL_TMP)
 
 
-## Rule for quality control
+## Rules for quality control
 #
 # NB: FastQC automatically adds the suffix "_fastqc"
 %_fastqc.zip: %.fastq
 	$(FASTQC) --noextract $<
+
+%_fastq_stats.txt: %.fastq
+	$(USEARCH) -fastq_stats $< -log $@
 
 
 ## Rule for quality filtering

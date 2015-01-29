@@ -1,8 +1,8 @@
 #
 # Makefile for 454 pipeline
 #
-# Executive summary - modify MAXEE, TRUNCLEN and SAMPLE_METADATA below then
-# (runs pipeline, writes log, and prints time it took):
+# Executive summary - modify MAXEE and TRUNCLEN below then (runs pipeline,
+# writes log, and prints time it took):
 #
 #    time make 2>&1 | tee -a log-$(date "+%Y_%m_%d-%H_%M_%S").txt
 #
@@ -31,8 +31,7 @@
 #         reads_fastqc.zip
 #         reads_fastq_stats.txt
 #
-# 3. Copy file with sample metadata to ./mapping.txt (see expected format
-#    below) and run pipeline
+# 3. Run pipeline
 #
 #         make
 #
@@ -43,7 +42,6 @@
 #         reads_otutab.tsv      OTU abundance table
 #         reads_otutax.csv      OTU taxonomy
 #         reads_otuphy.tre      phylogenetic tree of OTU representatives
-#         reads.biom            BIOM format OTU table, metadata and taxonomy
 #
 #
 # Targets:
@@ -67,13 +65,6 @@
 # tax     Taxonomic classification of OTU representatives.
 #
 # phy     Phylogenetic tree generation from OTU representatives.
-#
-# biom    Create a biom format file with OTU table and taxonomy.  The file
-#         named by SAMPLE_METADATA must be in the same folder as this makefile.
-#         This file contains metadata for each sample with one row per sample
-#         and items separated by tabs.  The first item is the sample name and
-#         remaining items are arbitrary.  The first row must be a header naming
-#         the items and this row must start with a # sign.
 #
 # clean   Delete all generated files except reads.fastq.
 #
@@ -109,9 +100,6 @@ OTUID := 0.97
 # Prefix used to label OTUs
 OTULABEL := OTU_
 
-# Tab-separated file with meta data for each sample
-SAMPLE_METADATA := mapping.txt
-
 
 ## Server configuration (modify these to match server) #######################
 
@@ -135,11 +123,6 @@ GOLD_DB_PATH := $(USEARCH_PATH)/microbiomeutil-r20110519/gold.fa
 RDP_CLASSIFIER_JAR := $(THIRD_PARTY_PATH)/rdp_classifier_2.10.1/dist/classifier.jar
 QIIME_ACTIVATION_SCRIPT := /projects/qiime/activate-qiime-1.7.0.sh
 
-# Use Anaconda Python which is assumed to have the following package installed
-# via pip: biom-format
-ANACONDA_PATH := $(THIRD_PARTY_PATH)/anaconda-2.1.0/bin
-export PATH := $(ANACONDA_PATH):$(PATH)
-
 
 ## Below here is not meant to be configured by user ##########################
 
@@ -154,10 +137,9 @@ SFF_FILES := $(wildcard $(SFF_PATH)/*.sff)
 SFF_GZ_FILES := $(wildcard $(SFF_PATH)/*.sff.gz)
 DEMULT_TARGETS := $(patsubst %.sff.gz, %_demultiplexed.fastq, $(SFF_GZ_FILES)) \
                   $(patsubst %.sff, %_demultiplexed.fastq, $(SFF_FILES))
-BIOM_TARGETS := $(patsubst %.fastq, %.biom, $(INFILE))
 
 ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS) $(DEMULT_TARGETS) \
-               $(TAX_TARGETS) $(PHY_TARGETS) $(BIOM_TARGETS)
+               $(TAX_TARGETS) $(PHY_TARGETS)
 
 PYNAST_TMP := $(CURDIR)/pynast
 RDP_TMP := $(CURDIR)/rdp
@@ -165,9 +147,9 @@ RDP_TMP := $(CURDIR)/rdp
 ALL_TMP := $(PYNAST_TMP) $(RDP_TMP)
 
 
-.PHONY: all sff qc qf otu tax phy biom clean
+.PHONY: all sff qc qf otu tax phy clean
 
-all: qf otu tax phy biom
+all: qf otu tax phy
 
 sff: $(DEMULT_TARGETS)
 	cat $^ > $(INFILE)
@@ -181,8 +163,6 @@ otu: $(OTU_TARGETS)
 tax: $(TAX_TARGETS)
 
 phy: $(PHY_TARGETS)
-
-biom: $(BIOM_TARGETS)
 
 clean:
 	-rm -rf $(ALL_TARGETS) $(ALL_TMP)
@@ -291,20 +271,3 @@ $(PYNAST_TMP)/%_aligned_pfiltered.fasta: $(PYNAST_TMP)/%_aligned.fasta
 %_otuphy.tre: $(PYNAST_TMP)/%_otureps_aligned_pfiltered.fasta
 	source $(QIIME_ACTIVATION_SCRIPT) && \
 	make_phylogeny.py -i $< -o $@ -r midpoint
-
-## Rules for generating biom file
-#
-#   create bare biom file (no taxonomy) -> add taxonomy to biom file
-#
-# NOTE: In theory it should be possible to add taxonomy on creation of the biom
-# file but I could not get it to work (no taxonomy would be added).  Also, in
-# theory RDP should be able to add taxonomy directly to bare biom file, but
-# that I could not get to work either.
-#
-%_bare.biom: %_otutab.tsv $(SAMPLE_METADATA)
-	biom convert -i $< -o $@ --table-type="OTU table" --to-json \
-	    --sample-metadata-fp=$(word 2, $^)
-
-%.biom: %_bare.biom %_otutax.tsv
-	biom add-metadata -i $< --output-as-json \
-	    --observation-metadata-fp=$(word 2, $^) -o $@

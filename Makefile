@@ -41,7 +41,7 @@
 #         reads.fasta           quality filtered reads
 #         reads_otureps.fasta   OTU representatives
 #         reads_otutab.tsv      OTU abundance table
-#         reads_otutax.tsv      OTU taxonomy
+#         reads_otutax.csv      OTU taxonomy
 #         reads_otuphy.tre      phylogenetic tree of OTU representatives
 #         reads.biom            BIOM format OTU table, metadata and taxonomy
 #
@@ -148,7 +148,7 @@ QC_TARGETS := $(patsubst %.fastq, %_fastqc.zip, $(INFILE)) \
 QF_TARGETS := $(patsubst %.fastq, %.fasta, $(INFILE))
 OTU_TARGETS := $(patsubst %.fastq, %_otureps.fasta, $(INFILE)) \
                $(patsubst %.fastq, %_otutab.tsv, $(INFILE))
-TAX_TARGETS := $(patsubst %.fastq, %_otutaxrdp.tsv, $(INFILE))
+TAX_TARGETS := $(patsubst %.fastq, %_otutax.csv, $(INFILE))
 PHY_TARGETS := $(patsubst %.fastq, %_otuphy.tre, $(INFILE))
 SFF_FILES := $(wildcard $(SFF_PATH)/*.sff)
 SFF_GZ_FILES := $(wildcard $(SFF_PATH)/*.sff.gz)
@@ -160,8 +160,9 @@ ALL_TARGETS := $(QC_TARGETS) $(QF_TARGETS) $(OTU_TARGETS) $(DEMULT_TARGETS) \
                $(TAX_TARGETS) $(PHY_TARGETS) $(BIOM_TARGETS)
 
 PYNAST_TMP := $(CURDIR)/pynast
+RDP_TMP := $(CURDIR)/rdp
 
-ALL_TMP := $(PYNAST_TMP)
+ALL_TMP := $(PYNAST_TMP) $(RDP_TMP)
 
 
 .PHONY: all sff qc qf otu tax phy biom clean
@@ -251,16 +252,29 @@ clean:
 	          $*-barcodes.fasta $(notdir $*) > $@
 
 
-## Rule for generating RDP taxonomy assignments
+## Rules for generating RDP taxonomy assignments
 #
-# taxrdp = the "alltax" format output by RDP
-# tax = only taxonomic ranks from domain to genus
+# There are currently two ways to generate taxonomy assignments: using
+# stand-alone RDP, or using QIIME's RDP scripts.  The latter is slow and we're
+# forced to run one process otherwise the script never completes.  However,
+# this is still the default as it has been used the most.
+#
+# _otutaxrdp.tsv = the "alltax" format output by RDP
+# _otutax.tsv = only taxonomic ranks from domain to genus
+# _otutax.csv = like above, but in CSV format and using QIIME's RDP scripts
 #
 %_otutaxrdp.tsv: %_otureps.fasta
 	$(JAVA) -Xmx1g -jar $(RDP_CLASSIFIER_JAR) classify -o $@ $<
 
 %_otutax.tsv: %_otutaxrdp.tsv
 	$(AWK) -f scripts/allrank2tsv.awk $< > $@
+
+$(RDP_TMP)/%_otureps_tax_assignments.txt: %_otureps.fasta
+	source $(QIIME_ACTIVATION_SCRIPT) && \
+	parallel_assign_taxonomy_rdp.py -i $< -o $(RDP_TMP) --jobs_to_start=1
+
+%_otutax.csv: $(RDP_TMP)/%_otureps_tax_assignments.txt
+	awk -f scripts/rdp2csv.awk $< > $@
 
 
 ## Rules for generating phylogenetic tree for OTU representatives

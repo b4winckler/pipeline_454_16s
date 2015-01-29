@@ -292,5 +292,5 @@ $(PYNAST_TMP)/%_aligned_pfiltered.fasta: $(PYNAST_TMP)/%_aligned.fasta
 	    --sample-metadata-fp=$(word 2, $^)
 
 %.biom: %_bare.biom %_otutax.tsv
-	biom add-metadata -i $< \
+	biom add-metadata -i $< --output-as-json \
 	    --observation-metadata-fp=$(word 2, $^) -o $@
